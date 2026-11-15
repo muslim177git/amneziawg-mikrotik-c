@@ -288,9 +288,9 @@ ok('inbound-only leg: replies are accepted above any local policy',
 // place-before=0 is only used when the table already has a rule; an empty
 // /ipv6/firewall/filter rejects it outright (#64).
 ok('inbound-only leg: guarded by a non-empty check',
-   inLines.indexOf(':if ([:len [/ipv6/firewall/filter/find]] > 0) do={') >= 0, inLines);
+   inLines.indexOf(':if ([:len $staticRules] > 0) do={') >= 0, inLines);
 ok('inbound-only leg: still placed on top when there is something to place before',
-   inLines.indexOf('comment=awg-server-1-v6-out place-before=0') >= 0, inLines);
+   inLines.indexOf('comment=awg-server-1-v6-out place-before=[:pick $staticRules 0]') >= 0, inLines);
 const undo = w.containerV6UninstallLines('awg-proxy-1', '  ').join('\n');
 ['-v6-nat', '-dstnat6', '-v6-out', '-awg-in6', '-v6'].forEach(function (tag) {
     ok('uninstall removes ' + tag, undo.indexOf('awg-proxy-1' + tag + ']') >= 0, undo);

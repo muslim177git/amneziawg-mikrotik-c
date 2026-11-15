@@ -2365,11 +2365,17 @@
     // an on-error would swallow that while the rule stayed at the bottom, which
     // is a worse failure than the one being fixed. Verified on RouterOS 7.24.2:
     // place-before=0 succeeds there, /move does not.
+    // A rule is inserted above the existing ones, but never by index 0: a
+    // *dynamic* rule can sit at the top (back-to-home-vpn installs one for as
+    // long as that service is up), and place-before=0 then fails outright with
+    // "item referred by 'place-before' does not exist (11)" — leaving half a
+    // script applied. The first static rule is the anchor instead.
     function firewallTopRule(table, args, comment) {
         var add = table + '/add ' + args + ' comment=' + comment;
         return [
-            ':if ([:len [' + table + '/find]] > 0) do={',
-            '  ' + add + ' place-before=0',
+            ':local staticRules [' + table + '/find where !dynamic]',
+            ':if ([:len $staticRules] > 0) do={',
+            '  ' + add + ' place-before=[:pick $staticRules 0]',
             '} else={',
             '  ' + add,
             '}'
@@ -5215,6 +5221,21 @@
         };
     }
 
+    // Direct phone/laptop clients get IPv6 inside the tunnel too, and it has to
+    // be derived rather than drawn: the share link carries only the IPv4 tunnel
+    // subnet, so a client added from it later must land on the same /64. Encoding
+    // the two last octets keeps it stable and unique per tunnel.
+    function getInnerTunnel6(tun) {
+        function hex(v) { var s = Number(v).toString(16); while (s.length < 2) s = '0' + s; return s; }
+        var p = tun.prefix.split('.');
+        var base = 'fd' + hex(p[1]) + ':' + hex(p[2]);
+        return {
+            net: base + '::/64',
+            server: base + '::1',
+            host: function(n) { return base + '::' + (n + 1); }
+        };
+    }
+
     // "address=<v4>[,<v6>] gateway=<v4gw>[ gateway6=<v6gw>]" for /interface/veth/add
     function vethAddrArgs(net, net6) {
         if (!net6) return 'address=' + net.vethAddr + ' gateway=' + net.vethGw;
@@ -5979,6 +6000,10 @@
         src.push('  :do { /ip/firewall/nat/remove [find where comment=' + prefix + '-ft-nat] } on-error={}');
         src = src.concat(containerV6UninstallLines(prefix, '  '));
         src.push('  :do { /ip/firewall/filter/remove [find where comment=' + prefix + '-ft-fwd] } on-error={}');
+        src.push('  :do { /ipv6/firewall/nat/remove [find where comment=' + prefix + '-ft-nat6] } on-error={}');
+        src.push('  :do { /ipv6/firewall/filter/remove [find where comment=' + prefix + '-ft-fwd6] } on-error={}');
+        src.push('  :do { /ipv6/firewall/filter/remove [find where comment=' + prefix + '-ft-fwd6r] } on-error={}');
+        src.push('  :do { /ipv6/address/remove [find where interface="wg-' + prefix + '"] } on-error={}');
         src.push('  /ip/firewall/nat/remove [find where src-address="' + net.natSrc + '"]');
         src.push('  :do { /ip/firewall/nat/remove [find where out-interface="wg-' + prefix + '"] } on-error={}');
         src.push('  /ip/address/remove [find where address="' + net.hostAddr + '"]');
@@ -6043,7 +6068,8 @@
         var lines = [];
         lines.push('[Interface]');
         lines.push('PrivateKey = ' + o.clientPriv);
-        lines.push('Address = ' + o.tunClientIP + '/32');
+        lines.push('Address = ' + o.tunClientIP + '/32' +
+                   (o.tunClientIP6 ? ', ' + o.tunClientIP6 + '/128' : ''));
         if (o.dnsServer) lines.push('DNS = ' + o.dnsServer);
         lines = lines.concat(awgProfileConfLines(o.awgParams));
         lines.push('');
@@ -6053,7 +6079,7 @@
         // An AmneziaWG app ignores it; pasted back into this page, it fills
         // the "several ports" box.
         if (o.band) lines.push('# AllowedPorts = ' + hubPorts(o.awgPort, o.band));
-        lines.push('AllowedIPs = 0.0.0.0/0');
+        lines.push('AllowedIPs = 0.0.0.0/0' + (o.tunClientIP6 ? ', ::/0' : ''));
         lines.push('PersistentKeepalive = 25');
         return lines.join('\n');
     }
@@ -6075,8 +6101,12 @@
         var tunClientIP = tun.ip(clientNum + 1);
         var band = awgParams.band || '';
         var dports = hubPorts(awgPort, band);
+        // A phone/laptop client also gets ::/0 in the tunnel: its own IPv6 may be
+        // missing, blocked or broken, and the hub has a v6 uplink of its own.
+        var tun6 = netMode === 'awg' ? getInnerTunnel6(tun) : null;
 
         var serverAllowed = tunClientIP + '/32';
+        if (tun6) serverAllowed += ',' + tun6.host(clientNum) + '/128';
         if (clientLAN) serverAllowed += ',' + clientLAN;
 
         var clientAllowed = tun.network;
@@ -6133,6 +6163,10 @@
         ls.push('/interface/wireguard/add name=wg-' + prefix + ' private-key="' + serverKey.privateKey + '" listen-port=' + wgPort + ' disabled=yes');
         ls.push('/interface/wireguard/peers/add interface=wg-' + prefix + ' public-key="' + clientKey.publicKey + '" allowed-address=' + serverAllowed + ' comment=' + prefix + '-client-' + clientNum);
         ls.push('/ip/address/add address=' + tunServerIP + '/24 interface=wg-' + prefix);
+        if (tun6) {
+            ls.push('# IPv6 inside the tunnel: one /64 shared by the peers (`::1` is the hub).');
+            ls.push('/ipv6/address/add address=' + tun6.server + '/64 interface=wg-' + prefix);
+        }
         ls.push('/ip/firewall/nat/add chain=srcnat action=masquerade out-interface=wg-' + prefix);
         ls.push('');
 
@@ -6160,6 +6194,18 @@
         ls.push('/ip/firewall/nat/add chain=srcnat action=masquerade src-address=' + tunnelCidr + ' out-interface-list=WAN comment=' + prefix + '-ft-nat');
         ls.push(firewallTopRule('/ip/firewall/filter',
             'chain=forward action=accept in-interface=wg-' + prefix, prefix + '-ft-fwd'));
+        if (tun6) {
+            ls.push('# Tunneled IPv6 leaves through the router\'s own uplink (NAT66): a delegated prefix is not');
+            ls.push('# something this script can count on, and the client address must not depend on the ISP.');
+            ls.push('/ipv6/firewall/nat/add chain=srcnat action=masquerade src-address=' + tun6.net + ' out-interface-list=WAN comment=' + prefix + '-ft-nat6');
+            ls.push(firewallTopRule('/ipv6/firewall/filter',
+                'chain=forward action=accept in-interface=wg-' + prefix, prefix + '-ft-fwd6'));
+            // The return leg is accepted explicitly: not every v6 forward chain on
+            // a working router has an established,related rule to fall back on.
+            ls.push(firewallTopRule('/ipv6/firewall/filter',
+                'chain=forward action=accept out-interface=wg-' + prefix + ' connection-state=established,related',
+                prefix + '-ft-fwd6r'));
+        }
         ls.push('');
 
         ls.push('# 5. Container environment variables');
@@ -6279,6 +6325,7 @@
                 awgPort: awgPort,
                 band: band,
                 tunClientIP: tunClientIP,
+                tunClientIP6: tun6 ? tun6.host(clientNum) : '',
                 dnsServer: dnsServer
             })
         };
@@ -6291,6 +6338,9 @@
         var tun = parseSlash24(tunnelCidr);
         var tunServerIP = tun.ip(1);
         var tunClientIP = tun.ip(clientNum + 1);
+        // Same derivation as the install, so a client added from the link gets the
+        // /64 that hub was installed with.
+        var tun6 = netMode === 'awg' ? getInnerTunnel6(tun) : null;
         var endpoint = urlParams.endpoint;
         var awgPort = urlParams.awgPort;
         var band = urlParams.awgBand || '';
@@ -6303,6 +6353,7 @@
         var clientKey = generateWgKeyPair();
 
         var serverAllowed = tunClientIP + '/32';
+        if (tun6) serverAllowed += ',' + tun6.host(clientNum) + '/128';
         if (clientLAN) serverAllowed += ',' + clientLAN;
 
         var clientAllowed = tunnelCidr;
@@ -6439,6 +6490,7 @@
                 awgPort: awgPort,
                 band: band,
                 tunClientIP: tunClientIP,
+                tunClientIP6: tun6 ? tun6.host(clientNum) : '',
                 dnsServer: dnsServer
             })
         };

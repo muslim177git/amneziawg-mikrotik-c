@@ -256,3 +256,51 @@ For N clients:
 - On each client: add routes to **all other** client subnets
 
 With 3+ clients, this is easier to automate with a script on the server.
+
+## IPv6 Inside the Tunnel (Direct Clients)
+
+With `--net` in "Direct AmneziaWG client" mode the tunnel carries IPv6 too, so a
+phone or laptop keeps an IPv6 address that does not depend on its own link
+(cellular IPv6 can be missing, filtered or broken, and this is exactly the
+network a full tunnel is supposed to fix).
+
+The generator derives a ULA `/64` from the IPv4 tunnel subnet — `10.197.67.0/24`
+becomes `fdc5:43::/64` — instead of adding a new field to the share link. That
+matters for more than tidiness: the link carries only the IPv4 subnet, so a
+client added from it later has to land on the same `/64` the hub was installed
+with, and a hub installed before this feature keeps generating its old config.
+
+On the server this adds:
+
+```
+/ipv6/address/add address=fdc5:43::1/64 interface=wg-awg-server-1
+/ipv6/firewall/nat/add chain=srcnat action=masquerade src-address=fdc5:43::/64 \
+    out-interface-list=WAN comment=awg-server-1-ft-nat6
+/ipv6/firewall/filter/add chain=forward action=accept in-interface=wg-awg-server-1 \
+    comment=awg-server-1-ft-fwd6
+/ipv6/firewall/filter/add chain=forward action=accept out-interface=wg-awg-server-1 \
+    connection-state=established,related comment=awg-server-1-ft-fwd6r
+```
+
+and the peer gets a second `allowed-address` entry, `<ula>::N/128`. The client
+`.conf` gains `Address = <v4>/32, <ula>::N/128` and `AllowedIPs = 0.0.0.0/0, ::/0`.
+
+Two decisions are worth knowing:
+
+- **NAT66, not a delegated prefix.** A client cannot be handed an address out of
+  the ISP's `/64` (a `/128` on the WAN cannot be split, and a routed prefix is not
+  something the script can count on), so tunneled IPv6 leaves through whatever
+  global address the router already has. If you do have a static delegated prefix
+  and want real addresses end to end, replace the masquerade with
+  `action=src-nat to-address=<prefix>::N`.
+- **The return leg gets its own rule.** Not every IPv6 forward chain on a working
+  router has an `established,related` accept to fall back on, and a missing one
+  shows up as "connects, nothing loads".
+
+Ignoring IPv6 on the client instead is a valid choice — but then the client's
+IPv6 leaks around the tunnel, which is usually why people ask for this in the
+first place.
+
+The MTU belongs to the outer path, not to the address family inside: an IPv6
+inner header is 20 bytes longer, so the tunnel MTU you set for an IPv6 uplink
+(see [AWG 3.x and IPv6](protocol.md)) covers both.

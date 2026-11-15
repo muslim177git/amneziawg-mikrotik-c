@@ -96,6 +96,6 @@ The configurator sets `mtu=` itself: the "Server is reachable over IPv6" box is 
 
 The `type=` parameter of `:resolve` is not present in every RouterOS 7.x build; `on-error={}` makes sure the install does not fail without it and the MTU simply stays at its IPv4 value. In that case tick the box by hand or set `mtu=` yourself.
 
-**What is not covered.** The rest of the RouterOS generation (`/ip/address`, `/ip/route`, `/ip/firewall`, veth, policy routing) stays IPv4. For the "all non-RU traffic" scenario this is not a problem: the routing-loop guard is only needed for IPv4 traffic, and with an IPv6 server it is simply not created — the policy routing never reaches it anyway.
+**What is not covered.** The rest of the RouterOS generation (`/ip/address`, `/ip/route`, `/ip/firewall`, veth, policy routing) stays IPv4 — the one exception is the tunnel of a direct AmneziaWG client in server mode, which carries `::/0` over a derived ULA (see [server mode](server-mode.md#ipv6-inside-the-tunnel-direct-clients)). For the "all non-RU traffic" scenario this is not a problem: the routing-loop guard is only needed for IPv4 traffic, and with an IPv6 server it is simply not created — the policy routing never reaches it anyway.
 
 **`AWG_NO_DF` and IPv6.** IPv6 has no DF bit — a transit router there never fragments. On an IPv6 socket the option (`IPV6_MTU_DISCOVER=IPV6_PMTUDISC_DONT`) only affects the local stack: it stops honouring PMTU replies. The symmetry is kept so `AWG_NO_DF=1` means the same thing on both families.

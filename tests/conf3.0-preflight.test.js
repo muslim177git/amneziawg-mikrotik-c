@@ -76,15 +76,15 @@ function assertGuarded(label, text) {
            chk >= 0 && (mut < 0 || chk < mut),
            'check@' + chk + ' mutation@' + mut + ' -> ' + (mut >= 0 ? text.split(NL)[mut] : ''));
     });
-    // place-before=0 is fine, but only inside the non-empty guard right above it.
+    // place-before is fine, but only inside the non-empty guard right above it.
     const ls = text.split(NL);
     const unguarded = ls.filter(function (l, i) {
-        if (l.indexOf('place-before=0') < 0) return false;
-        for (var k = i - 1; k >= 0 && k >= i - 2; k--)
-            if (ls[k].indexOf(':if ([:len [') >= 0 && ls[k].indexOf('/find]] > 0) do={') >= 0) return false;
+        if (l.indexOf('place-before=') < 0) return false;
+        for (var k = i - 1; k >= 0 && k >= i - 3; k--)
+            if (ls[k].indexOf(':if ([:len $staticRules] > 0) do={') >= 0) return false;
         return true;
     });
-    ok(label + ': no place-before=0 outside a non-empty guard', unguarded.length === 0,
+    ok(label + ': no place-before outside a non-empty guard', unguarded.length === 0,
        unguarded[0] || '');
 }
 
@@ -99,9 +99,12 @@ ok('preflight makes no changes of its own', firstMutation(pf) < 0,
 
 const top = w.firewallTopRule('/ip/firewall/filter', 'chain=input action=accept', 'tag-1');
 ok('top rule checks the table is not empty first',
-   top.indexOf(':if ([:len [/ip/firewall/filter/find]] > 0) do={') >= 0, top);
-ok('top rule uses place-before only in that branch',
-   top.indexOf('comment=tag-1 place-before=0') >= 0, top);
+   top.indexOf(':if ([:len $staticRules] > 0) do={') >= 0, top);
+ok('top rule anchors on the first *static* rule, never index 0',
+   top.indexOf('place-before=[:pick $staticRules 0]') >= 0 &&
+   top.indexOf('place-before=0') < 0, top);
+ok('top rule skips dynamic rules when collecting anchors',
+   top.indexOf('/find where !dynamic') >= 0, top);
 ok('top rule has a plain add for the empty table',
    top.split('} else={')[1].indexOf('/ip/firewall/filter/add ') >= 0, top);
 ok('the empty-table branch carries no place-before',
@@ -139,7 +142,7 @@ skip('site-to-site A and B', SITE_TO_SITE_HIDDEN, function () {
 /* ---- normal install, IPv6 leg uses out-interface-list=WAN ---- */
 const v6 = w.containerV6Lines('awg-proxy-1', w.getTunnelNetwork6('awg-proxy-1'), true).join(NL);
 ok('ipv6 container leg guards its top rule too',
-   v6.indexOf(':if ([:len [/ipv6/firewall/filter/find]] > 0) do={') >= 0, v6);
+   v6.indexOf(':if ([:len $staticRules] > 0) do={') >= 0, v6);
 ok('and has a plain add for an empty ipv6 filter table',
    v6.split('} else={')[1] && v6.split('} else={')[1].indexOf('/ipv6/firewall/filter/add ') >= 0, v6);
 
@@ -150,15 +153,17 @@ const srvFilterAdds = srv.server.split(NL).filter(function (l) {
 ok('server still installs its accept rules', srvFilterAdds.length >= 6, String(srvFilterAdds.length));
 // Every top rule appears twice: once with place-before, once without, under a
 // non-empty check. Neither copy may be left unguarded.
-const guarded = (srv.server.match(/:if \(\[:len \[\/ipv?6?\/?firewall\/filter\/find\]\] > 0\) do=\{/g) || []).length;
+const guarded = (srv.server.match(/:if \(\[:len \$staticRules\] > 0\) do=\{/g) || []).length;
 ok('each top rule is guarded by a non-empty check', guarded >= 3, String(guarded));
 ok('no place-before survives outside a guard',
    srv.server.split(NL).every(function (l, i, all) {
-       if (l.indexOf('place-before=0') < 0) return true;
+       if (l.indexOf('place-before=') < 0) return true;
        for (var k = i - 1; k >= 0 && k >= i - 3; k--)
-           if (all[k].indexOf(':if ([:len [') >= 0) return true;
+           if (all[k].indexOf(':if ([:len $staticRules] > 0)') >= 0) return true;
        return false;
-   }), 'an unguarded place-before=0 is present');
+   }), 'an unguarded place-before is present');
+ok('place-before never refers to a raw index',
+   srv.server.indexOf('place-before=0') < 0, 'place-before=0 still generated');
 
 console.log('');
 console.log(fails ? (passes + '/' + (passes + fails) + ' checks passed, ' + fails + ' FAILED')
