@@ -153,6 +153,12 @@ hub during development, and inbound IPv6 to a WAN address can only be proven fro
 outside that LAN. Treat the IPv6 data path as "generated and installed correctly,
 not yet exercised end to end".
 
+## Deployment
+
+The router-side settings that make this work — interface list, MTU table, container
+flags, firewall ordering, verification and the failures seen in practice — are in
+**[DEPLOY-SERVER.md](DEPLOY-SERVER.md)**.
+
 ## Upstream
 
 Both commits are written as upstream patches (`git format-patch`) and are meant to
