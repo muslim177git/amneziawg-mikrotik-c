@@ -5748,7 +5748,7 @@
     //     0 = wgPubKey (32 bytes, critical — without it nothing works)
     //     1 = endpoint (critical — server address)
     //     2 = prefix (important — tunnel name, has default fallback)
-    //     3 = netMode (1 byte: 0=none, 1=l3, 2=l2)
+    //     3 = netMode (1 byte: 0=none, 1=l3, 2=l2, 3=awg)
     //     4 = serverLAN (optional, only needed for L3/L2)
     //     5 = awgBand (optional: more ports the hub forwards to awgPort,
     //         "30000-30999"; clients put them in AWG_REMOTE)
@@ -5772,7 +5772,10 @@
     function buildShareableURL(awgParams, serverWgPubKey, endpoint, awgPort, wgPort, tunnelSubnet, prefix, nextClient, netMode, serverLAN, band) {
         var tun = tunnelSubnet.replace(/\/24$/, '').split('.');
         var keyRaw = atob(serverWgPubKey);
-        var netModeB = netMode === 'l3' ? 1 : (netMode === 'l2' ? 2 : 0);
+        // 'awg' used to collapse into 0 (none), so a client added from the link
+        // was treated as a router-to-router client: the .conf came out without the
+        // tunnel /128 and ::/0, and a hostname endpoint demanded a DNS it does not need.
+        var netModeB = netMode === 'l3' ? 1 : (netMode === 'l2' ? 2 : (netMode === 'awg' ? 3 : 0));
 
         var fields = [
             strToBytes(keyRaw.slice(0, 32)),
@@ -5880,7 +5883,7 @@
         var prefix = field(2) || 'awg-server-1';
         var netModeRaw = field(3);
         var netModeVal = netModeRaw.length > 0 ? netModeRaw.charCodeAt(0) : 0;
-        var netMode = netModeVal === 1 ? 'l3' : (netModeVal === 2 ? 'l2' : 'none');
+        var netMode = netModeVal === 1 ? 'l3' : (netModeVal === 2 ? 'l2' : (netModeVal === 3 ? 'awg' : 'none'));
         var serverLAN = field(4);
         var awgBand = field(5);
         if (awgBand && !isValidHubBand(awgBand)) awgBand = '';

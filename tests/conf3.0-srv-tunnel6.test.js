@@ -25,7 +25,7 @@ const dom = new JSDOM(html, { runScripts: 'dangerously', url: 'https://example.i
 const w = dom.window;
 
 const need = ['buildServerCommands', 'buildAwgConf', 'getInnerTunnel6',
-              'parseSlash24', 'generateAWGParams'];
+              'parseSlash24', 'buildShareableURL', 'generateAWGParams'];
 const missing = need.filter(n => typeof w[n] !== 'function');
 if (missing.length) {
     console.log('  FAIL  functions not reachable: ' + missing.join(', '));
@@ -104,6 +104,31 @@ const c5 = w.buildServerCommands('vpn.example.com', profile(), TUN, 'disk1', 'di
                                  PREFIX, '', '', 'awg', 5, '1.1.1.1');
 ok('client 5 gets ::6', c5.awgConf.indexOf('fdc5:43::6/128') >= 0, c5.awgConf);
 ok('client 5 v4 is unchanged', c5.awgConf.indexOf('Address = 10.197.67.6/32') >= 0, c5.awgConf);
+
+/* ---- the share link has to remember "direct client", not just "no LAN" ---- */
+/* Field 3 is one byte: 0=none, 1=l3, 2=l2, 3=awg. 'awg' used to be written as 0,
+   so --share-url produced a client without its /128 and ::/0. */
+function sharePayload(link) { return /[?&]c=([A-Za-z0-9_-]+)$/.exec(link)[1]; }
+const awgURL = awg.shareURL;
+const link = w.buildShareableURL(profile(), 'A'.repeat(43) + '=', 'vpn.example.com',
+                                8443, 12027, TUN, PREFIX, 2, 'awg', '', '');
+ok('awg share link is built', link.indexOf('c=') > 0, link.slice(0, 40));
+
+// Decode with the page's own parser: a second document whose query is the link.
+const dom2 = new JSDOM(html, { runScripts: 'dangerously',
+    url: 'https://example.invalid/?c=' + sharePayload(link) });
+const u = dom2.window.parseURLParams();
+ok('link decodes', !!u);
+eq('link remembers the direct-client mode', u && u.netMode, 'awg');
+eq('link keeps the tunnel subnet', u && u.tunnelSubnet, TUN);
+eq('link keeps the port', u && u.awgPort, 8443);
+
+// And the decoded link reproduces the same inner /64, so add-client lands right.
+const add = w.buildAddClientCommands(u, 'disk1', '', u.netMode, '');
+ok('added client gets its /128', add.serverUpdate.indexOf('allowed-address=10.197.67.3/32,fdc5:43::3/128') >= 0,
+   add.serverUpdate.split('\n')[0]);
+ok('added client conf carries IPv6', add.awgConf.indexOf('Address = 10.197.67.3/32, fdc5:43::3/128') >= 0, add.awgConf);
+ok('added client conf routes ::/0', add.awgConf.indexOf('AllowedIPs = 0.0.0.0/0, ::/0') >= 0, add.awgConf);
 
 console.log('\n' + passes + ' passed, ' + fails + ' failed');
 process.exit(fails ? 1 : 0);
