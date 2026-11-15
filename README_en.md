@@ -2,7 +2,8 @@
 > It changes only the **config generator** — IPv6 inside the tunnel for direct phone/laptop clients,
 > plus two generator bugs (share-link net mode, `place-before` on dynamic rules). The container image
 > is upstream's, unmodified. Read **[FORK.md](FORK.md)** for the full list of changes, migration notes
-> and what is verified. Not affiliated with MikroTik / SIA Mikrotikls, nor with the upstream author.
+> and what is verified, and **[DEPLOY-SERVER.md](DEPLOY-SERVER.md)** for the router-side settings
+> and the troubleshooting that actually comes up. Not affiliated with MikroTik / SIA Mikrotikls, nor with the upstream author.
 
 > This project is not affiliated with or endorsed by MikroTik / SIA Mikrotikls
 
