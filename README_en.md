@@ -1,3 +1,9 @@
+> **This is a fork of [timbrs/amneziawg-mikrotik-c](https://github.com/timbrs/amneziawg-mikrotik-c) (v1.4.6).**
+> It changes only the **config generator** — IPv6 inside the tunnel for direct phone/laptop clients,
+> plus two generator bugs (share-link net mode, `place-before` on dynamic rules). The container image
+> is upstream's, unmodified. Read **[FORK.md](FORK.md)** for the full list of changes, migration notes
+> and what is verified. Not affiliated with MikroTik / SIA Mikrotikls, nor with the upstream author.
+
 > This project is not affiliated with or endorsed by MikroTik / SIA Mikrotikls
 
 # awg-proxy -- AmneziaWG for MikroTik

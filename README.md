@@ -1,3 +1,9 @@
+> **Это форк [timbrs/amneziawg-mikrotik-c](https://github.com/timbrs/amneziawg-mikrotik-c) (v1.4.6).**
+> Изменён только **генератор конфигурации** — IPv6 внутри туннеля для прямых клиентов (телефон/ноутбук)
+> и две ошибки генератора (net mode в ссылке, `place-before` при динамическом правиле). Образ контейнера —
+> апстримный, без изменений. Полный список изменений, миграция и что проверено — в **[FORK.md](FORK.md)**.
+> Проект не связан с MikroTik / SIA Mikrotikls и с автором апстрима.
+
 > This project is not affiliated with or endorsed by MikroTik / SIA Mikrotikls
 
 # awg-proxy -- AmneziaWG для MikroTik
